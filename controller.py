@@ -1,10 +1,17 @@
 import math
 import itertools
 import numpy as np
-import gurobipy as gp
 from gurobipy import GRB
 
-from .config import EPS, BLS_MAX_CANDIDATES, BLS_MAX_EXTENSION, VERBOSE
+from .config import (
+    EPS,
+    BLS_MAX_CANDIDATES,
+    BLS_MAX_EXTENSION,
+    VERBOSE,
+    USE_TABU_LOCAL_SEARCH,
+    TABU_MAX_STEPS,
+    TABU_TENURE
+)
 from .utils import round_integer_part
 from .line_search import LineSearch
 
@@ -32,11 +39,19 @@ class BLSController:
         self.line = LineSearch()
         self.max_candidates = BLS_MAX_CANDIDATES
         self.max_extension = BLS_MAX_EXTENSION
+
+        # TABU LOCAL SEARCH ATTRIBUTES
+        self.use_tabu_ls = USE_TABU_LOCAL_SEARCH
+        self.tabu_max_steps = TABU_MAX_STEPS
+        self.tabu_tenure = TABU_TENURE
+        self.tls_calls = 0
+        self.tls_improvements = 0
+
         self._cache_model_data()
 
-    def _log(self, msg):
+    def _log(self, *args, **kwargs):
         if self.verbose:
-            print(msg)
+            print(*args, **kwargs)
 
     def _cache_model_data(self):
         self.vars = self.model.getVars()
@@ -105,6 +120,11 @@ class BLSController:
                             target_model = cb_model or self.model
                             self._log(f"      [INCUMBENT IMPROVEMENT] Rounded point objective ({obj:.6f}) improves current incumbent ({self.bnb.best_incumbent:.6f}). Submitting immediately...")
                             self.bnb.submit_solution(target_model, p)
+
+                        # Run Tabu Local Search refinement around rounded base point
+                        if self.use_tabu_ls:
+                            tls_pt, tls_obj = self.tabu_local_search(p, cb_model=cb_model)
+                            all_feasible_points.append((None, tls_pt, tls_obj))
                     else:
                         self._log(f"      [{mode_name.upper()} POINT] Point: {np.round(p, 4)} | Feasible: False")
 
@@ -130,6 +150,10 @@ class BLSController:
             if np.allclose(RA, RB, atol=EPS):
                 continue
                 
+            # self._log(f"   --- evaluating line combination #{combination_counter} ---")
+            # self._log(f"      RA (Registry #{idx_A}): {np.round(RA, 4)}")
+            # self._log(f"      RB (Registry #{idx_B}): {np.round(RB, 4)}")
+            
             self.line.set_base_points(RA, RB)
             self.base_activity = np.asarray(self.A @ RA)
             self.base_slope = np.asarray(self.A @ self.line.direction)
@@ -186,9 +210,102 @@ class BLSController:
                 continue
                 
             feasible_points.append((t, point, objective))
-            self.update_best(point, objective, t)
+            self.update_best(point, objective)
+
+            if self.use_tabu_ls:
+                tls_pt, tls_obj = self.tabu_local_search(point)
+                feasible_points.append((t, tls_pt, tls_obj))
 
         return feasible_points
+
+    def tabu_local_search(self, start_point, cb_model=None):
+        """
+        Explores 1-flip integer neighborhood around start_point.
+        Uses tabu status on modified variable indices to escape local minima.
+        Accepts non-improving moves if non-tabu, or tabu moves if Aspirated.
+        """
+        if self.bnb and self.bnb.is_time_limit_exceeded():
+            return start_point, self.objective_value(point=start_point)
+
+        self.tls_calls += 1
+        current_point = np.array(start_point, dtype=float).copy()
+        current_obj = self.objective_value(point=current_point)
+        tabu_vars = {}  # var_index -> tabu_until_step
+
+        self._log(f"\n      [TABU LOCAL SEARCH] Starting TLS from point obj: {current_obj:.6f}")
+
+        for step in range(1, self.tabu_max_steps + 1):
+            if self.bnb and self.bnb.is_time_limit_exceeded():
+                break
+
+            best_move = None
+            best_move_obj = math.inf if self.is_minimize else -math.inf
+            best_var_idx = None
+            best_direction = 0
+
+            # Explore neighborhood: 1-step move on each integer variable
+            for var_idx in self.integer_indices:
+                is_var_tabu = (var_idx in tabu_vars) and (step < tabu_vars[var_idx])
+
+                for delta in [-1.0, 1.0]:
+                    cand = current_point.copy()
+                    cand[var_idx] += delta
+
+                    # Skip infeasible points
+                    if not self.is_feasible(cand):
+                        continue
+
+                    cand_obj = self.objective_value(point=cand)
+
+                    # Aspiration Criterion: Overrides tabu if strictly better than overall best_objective
+                    aspirated = (
+                        self.best_objective is not None and (
+                            (self.is_minimize and cand_obj < self.best_objective - EPS) or
+                            (not self.is_minimize and cand_obj > self.best_objective + EPS)
+                        )
+                    )
+
+                    if is_var_tabu and not aspirated:
+                        continue
+
+                    # Select best valid neighbor among non-tabu or aspirated candidates
+                    if self.is_minimize:
+                        if cand_obj < best_move_obj - EPS:
+                            best_move = cand
+                            best_move_obj = cand_obj
+                            best_var_idx = var_idx
+                            best_direction = delta
+                    else:
+                        if cand_obj > best_move_obj + EPS:
+                            best_move = cand
+                            best_move_obj = cand_obj
+                            best_var_idx = var_idx
+                            best_direction = delta
+
+            if best_move is None:
+                self._log(f"      [TLS STOP] Step {step}: No feasible non-tabu moves available.")
+                break
+
+            # Execute move and mark variable index as Tabu
+            current_point = best_move
+            current_obj = best_move_obj
+            tabu_vars[best_var_idx] = step + self.tabu_tenure
+            
+            # Track if this step improved overall best
+            if self.best_objective is None or (self.is_minimize and current_obj < self.best_objective - EPS) or (not self.is_minimize and current_obj > self.best_objective + EPS):
+                self.tls_improvements += 1
+
+            self.update_best(current_point, current_obj)
+
+            self._log(f"      [TLS STEP {step}] Modified Var #{best_var_idx} (delta={best_direction:+.1f}) -> New Obj: {current_obj:.6f}")
+
+            # Submit improved solution immediately to Gurobi if it beats solver incumbent
+            if self.bnb and self.bnb._is_better(current_obj):
+                target_model = cb_model or self.model
+                self._log(f"      [TLS INCUMBENT IMPROVEMENT] TLS point objective ({current_obj:.6f}) improves current incumbent. Submitting solution...")
+                self.bnb.submit_solution(target_model, current_point)
+
+        return current_point, current_obj
 
     def feasible_t_interval(self):
         RA = self.line.RA
@@ -297,7 +414,7 @@ class BLSController:
             return float(self.c @ point + self.obj_const)
         raise ValueError("Either t or point must be provided to objective_value")
 
-    def update_best(self, point, objective, t=None):
+    def update_best(self, point, objective):
         if self.best_objective is None:
             self.best_objective = objective
             self.best_point = point

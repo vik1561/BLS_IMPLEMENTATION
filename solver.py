@@ -4,7 +4,7 @@ import numpy as np
 import gurobipy as gp
 from gurobipy import GRB, GurobiError
 
-from .config import TIME_LIMIT, EPS, USE_BLS, MIN_LP_POINTS, VERBOSE
+from .config import TIME_LIMIT, EPS, USE_BLS, VERBOSE, MIN_LP_POINTS
 from .controller import BLSController
 
 
@@ -19,8 +19,8 @@ class GuroBI_BLS:
         global_start_time=None,
         time_limit=TIME_LIMIT,
         use_bls=USE_BLS,
-        min_lp_points=MIN_LP_POINTS,
-        verbose=VERBOSE
+        verbose=VERBOSE,
+        min_lp_points=MIN_LP_POINTS
     ):
         self.original_model = model
         self.use_bls = use_bls
@@ -48,9 +48,9 @@ class GuroBI_BLS:
         self.lp_solution_pool = []
         self.min_lp_points = min_lp_points
 
-    def _log(self, msg):
+    def _log(self, *args, **kwargs):
         if self.verbose:
-            print(msg)
+            print(*args, **kwargs)
 
     def _get_point_hash(self, point):
         return tuple(np.round(point, 6))
@@ -79,9 +79,7 @@ class GuroBI_BLS:
     def _mip_callback(self, model, where):
         try:
             if self.is_time_limit_exceeded():
-                if not getattr(self, '_time_limit_logged', False):
-                    self._log("\n[GLOBAL TIME LIMIT] Exceeded in callback. Terminating Gurobi solver...")
-                    self._time_limit_logged = True
+                self._log("\n[GLOBAL TIME LIMIT] Exceeded in callback. Terminating Gurobi solver...")
                 model.terminate()
                 return
 
@@ -102,7 +100,7 @@ class GuroBI_BLS:
 
                     # Trigger BLS search when minimum LP solution pool is reached
                     if len(self.lp_solution_pool) >= self.min_lp_points:
-                        self._apply_bls_on_siblings(model, None, None)
+                        self._apply_bls_on_siblings(model)
                 
             elif where == GRB.Callback.MIPSOL:
                 mipsol_obj = model.cbGet(GRB.Callback.MIPSOL_OBJ)
@@ -110,7 +108,7 @@ class GuroBI_BLS:
                 self.update_incumbent(mipsol_obj, source="MIPSOL")
                 
         except Exception as e:
-            print(f"Error executing callback pipeline: {e}")
+            self._log(f"Error executing callback pipeline: {e}")
     
     def submit_solution(self, model, candidate):
         """
@@ -142,7 +140,7 @@ class GuroBI_BLS:
             self._log(f"   [SUBMISSION RESULT] -> REJECTED due to direct engine error: {e}")
             return None
 
-    def _apply_bls_on_siblings(self, model, lp_sol_1, lp_sol_2):
+    def _apply_bls_on_siblings(self, model):
         try:
             if self.is_time_limit_exceeded():
                 model.terminate()
@@ -160,13 +158,13 @@ class GuroBI_BLS:
                 self.submit_solution(model, candidate)
 
         except Exception as e:
-            print(f"Error in BLS sister processing phase: {e}")
+            self._log(f"Error in BLS sister processing phase: {e}")
 
             
     def solve(self):
         rem_time = max(0.0, self.time_limit - self.elapsed_time())
         if rem_time <= 0:
-            print("[GLOBAL TIME LIMIT] Reached before optimization could start.")
+            self._log("[GLOBAL TIME LIMIT] Reached before optimization could start.")
             return self.original_model
 
         self.original_model.Params.TimeLimit = rem_time
@@ -180,9 +178,10 @@ class GuroBI_BLS:
     def statistics(self):
         return {
             "use_bls": self.use_bls,
+            "verbose": self.verbose,
             "status": self.original_model.Status,
             "best_objective": self.original_model.ObjVal if self.original_model.SolCount else (self.best_incumbent if np.isfinite(self.best_incumbent) else None),
-            "best_bound": self.original_model.ObjBound if self.original_model.Status in [GRB.OPTIMAL, GRB.TIME_LIMIT, GRB.NODE_LIMIT] or self.original_model.SolCount else None,
+            "best_bound": self.original_model.ObjBound if self.original_model.Status in [GRB.OPTIMAL, GRB.TIME_LIMIT, GRB.NODE_LIMIT, GRB.INTERRUPTED] or self.original_model.SolCount else None,
             "mip_gap": self.original_model.MIPGap if self.original_model.SolCount else None,
             "total_time_sec": self.elapsed_time(),
             "iterations": self.original_model.IterCount,
@@ -190,6 +189,9 @@ class GuroBI_BLS:
             "bls_calls": self.bls_calls,
             "bls_solutions_found": self.bls_solutions_found,
             "bls_improvements": self.bls_improvements,
+            "use_tabu_local_search": self.bls.use_tabu_ls,
+            "tls_calls": self.bls.tls_calls,
+            "tls_improvements": self.bls.tls_improvements,
             "best_bls_objective": self.bls.best_objective,
             "best_bls_point": self.bls.best_point.tolist() if self.bls.best_point is not None else None,
         }

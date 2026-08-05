@@ -8,7 +8,7 @@ PROJECT_ROOT = Path(__file__).resolve().parent.parent
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
-from bls.config import (
+from BLS_IMPLEMENTATION.config import (
     INSTANCE_PATH,
     TIME_LIMIT,
     THREADS,
@@ -28,9 +28,14 @@ def main():
 
     instance_path = INSTANCE_PATH
     if not instance_path.exists():
-        instance_path = Path("example.mps")
-        if not instance_path.exists():
-            raise FileNotFoundError(f"Could not locate {INSTANCE_PATH} or example.mps file.")
+        if not instance_path.parent.exists():
+            raise FileNotFoundError(
+                f"Instance directory not found: '{instance_path.parent}'. "
+                f"Please ensure the instances folder exists."
+            )
+        raise FileNotFoundError(
+            f"Instance file '{instance_path.name}' not found in directory '{instance_path.parent}'."
+        )
 
     mip = gp.read(str(instance_path))
 
@@ -49,8 +54,8 @@ def main():
         global_start_time=global_start_time,
         time_limit=TIME_LIMIT,
         use_bls=USE_BLS,
-        min_lp_points=MIN_LP_POINTS,
-        verbose=VERBOSE
+        verbose=VERBOSE,
+        min_lp_points=MIN_LP_POINTS
     )
     solver_backend.solve()
     run_stats = solver_backend.statistics()
