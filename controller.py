@@ -133,11 +133,17 @@ class BLSController:
             self._log(f"      Registry Point #{idx}: {np.round(bp, 4)}")
         self._log("   ==========================================================\n")
 
+        n_old = len(self.global_base_points) - newly_added_count
+
         combination_counter = 1
         for idx_A, idx_B in itertools.combinations(range(len(self.global_base_points)), 2):
             if self.bnb and self.bnb.is_time_limit_exceeded():
                 self._log("   [TIME LIMIT REACHED] Aborting further line evaluations.")
                 break
+
+            # Skip combinations where both points were present in previous BLS runs
+            if idx_A < n_old and idx_B < n_old:
+                continue
 
             comb_key = tuple(sorted((idx_A, idx_B)))
             if comb_key in self.evaluated_combinations:
