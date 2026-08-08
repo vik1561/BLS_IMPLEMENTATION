@@ -179,9 +179,10 @@ class GuroBI_BLS:
         return {
             "use_bls": self.use_bls,
             "verbose": self.verbose,
+            "verbose": self.verbose,
             "status": self.original_model.Status,
             "best_objective": self.original_model.ObjVal if self.original_model.SolCount else (self.best_incumbent if np.isfinite(self.best_incumbent) else None),
-            "best_bound": self.original_model.ObjBound if self.original_model.Status in [GRB.OPTIMAL, GRB.TIME_LIMIT, GRB.NODE_LIMIT, GRB.INTERRUPTED] or self.original_model.SolCount else None,
+            "best_bound": self.original_model.ObjBound if self.original_model.Status in [GRB.OPTIMAL, GRB.TIME_LIMIT, GRB.NODE_LIMIT, GRB.INTERRUPTED, GRB.INTERRUPTED] or self.original_model.SolCount else None,
             "mip_gap": self.original_model.MIPGap if self.original_model.SolCount else None,
             "total_time_sec": self.elapsed_time(),
             "iterations": self.original_model.IterCount,

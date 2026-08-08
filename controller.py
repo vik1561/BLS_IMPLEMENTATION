@@ -149,10 +149,9 @@ class BLSController:
             
             if np.allclose(RA, RB, atol=EPS):
                 continue
-                
-            # self._log(f"   --- evaluating line combination #{combination_counter} ---")
-            # self._log(f"      RA (Registry #{idx_A}): {np.round(RA, 4)}")
-            # self._log(f"      RB (Registry #{idx_B}): {np.round(RB, 4)}")
+            self._log(f"   --- evaluating line combination #{combination_counter} ---")
+            self._log(f"      RA (Registry #{idx_A}): {np.round(RA, 4)}")
+            self._log(f"      RB (Registry #{idx_B}): {np.round(RB, 4)}")
             
             self.line.set_base_points(RA, RB)
             self.base_activity = np.asarray(self.A @ RA)

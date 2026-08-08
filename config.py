@@ -9,7 +9,7 @@ INSTANCE_DIR = PROJECT_DIR / "instances"
 RESULT_DIR = PROJECT_DIR / "results"
 RESULT_DIR.mkdir(exist_ok=True)
 
-INSTANCE_NAME = "timtab1.mps"
+INSTANCE_NAME = "gen-ip002.mps"
 INSTANCE_PATH = INSTANCE_DIR / INSTANCE_NAME
 
 # =====================================================================
