@@ -15,7 +15,7 @@ INSTANCE_PATH = INSTANCE_DIR / INSTANCE_NAME
 # =====================================================================
 # SOLVER & ALGORITHM PARAMETERS
 # =====================================================================
-TIME_LIMIT = 6
+TIME_LIMIT = 600
 THREADS = 1
 OUTPUT_FLAG = 1
 SEED = 1
@@ -31,6 +31,6 @@ BLS_MAX_CANDIDATES = 200
 BLS_MAX_EXTENSION = 50
 
 # Tabu Search parameters
-USE_TABU_LOCAL_SEARCH = True
+USE_TABU_LOCAL_SEARCH = False
 TABU_MAX_STEPS = 15
 TABU_TENURE = 5

@@ -47,6 +47,7 @@ class GuroBI_BLS:
         self.submitted_solutions = set()
         self.lp_solution_pool = []
         self.min_lp_points = min_lp_points
+        self.last_bls_pool_size = 0
 
     def _log(self, *args, **kwargs):
         if self.verbose:
@@ -96,11 +97,12 @@ class GuroBI_BLS:
                     if not any(np.allclose(lp_solution, p, atol=EPS) for p in self.lp_solution_pool):
                         self.lp_solution_pool.append(lp_solution.copy())
 
-                    self._log(f"      [LP POOL] {len(self.lp_solution_pool)} LP solutions collected.")
+                        # Trigger BLS search every min_lp_points (N) new unique LP solutions
+                        if len(self.lp_solution_pool) - self.last_bls_pool_size >= self.min_lp_points:
+                            self.last_bls_pool_size = len(self.lp_solution_pool)
+                            self._apply_bls_on_siblings(model)
 
-                    # Trigger BLS search when minimum LP solution pool is reached
-                    if len(self.lp_solution_pool) >= self.min_lp_points:
-                        self._apply_bls_on_siblings(model)
+                    self._log(f"      [LP POOL] {len(self.lp_solution_pool)} LP solutions collected.")
                 
             elif where == GRB.Callback.MIPSOL:
                 mipsol_obj = model.cbGet(GRB.Callback.MIPSOL_OBJ)
