@@ -30,8 +30,9 @@ class BLSController:
         self.global_base_points = []
         
         # DEDUPLICATION TRACKING STORES
-        self.evaluated_combinations = set()    # Stores pairs of unique base point IDs
+        self.last_evaluated_registry_size = 0  # Tracks registry boundary of fully evaluated pairs
         self.evaluated_lattice_points = set()   # Stores unique point hashes (coordinates as string/tuple)
+        self.evaluated_lp_hashes = set()        # Stores hashes of evaluated LP relaxation solutions
         
         self.best_point = None
         self.best_objective = None
@@ -88,6 +89,11 @@ class BLSController:
         self._log("   ==========================================================")
 
         for i, lp in enumerate(lp_pool):
+            lp_hash = self._get_point_hash(lp)
+            if lp_hash in self.evaluated_lp_hashes:
+                continue
+            self.evaluated_lp_hashes.add(lp_hash)
+
             self._log(f"\n   -> LP Solution {i+1}: {np.round(lp, 4)}")
 
             c = round_integer_part(lp, self.integer_indices, 'ceil', self.lb, self.ub)
@@ -95,45 +101,47 @@ class BLSController:
             r = round_integer_part(lp, self.integer_indices, 'round', self.lb, self.ub)
 
             current_candidates = [('ceil', c), ('floor', f), ('round', r)]
+            lp_feasible_candidates = []
 
             for mode_name, p in current_candidates:
-                # Check whether the rounded point is already present in the global registry
+                # Evaluate feasibility & objective for all 3 rounding modes
+                is_feas = self.is_feasible(p)
+                if is_feas:
+                    obj = self.objective_value(point=p)
+                    self._log(f"      [{mode_name.upper()} POINT] Point: {np.round(p, 4)} | Feasible: True | Objective: {obj:.6f}")
+                    all_feasible_points.append((None, p, obj))
+                    lp_feasible_candidates.append((p, obj))
+                    self.update_best(p, obj)
+
+                    # Run Tabu Local Search refinement around rounded base point
+                    if self.use_tabu_ls:
+                        tls_pt, tls_obj = self.tabu_local_search(p, cb_model=cb_model)
+                        all_feasible_points.append((None, tls_pt, tls_obj))
+                        lp_feasible_candidates.append((tls_pt, tls_obj))
+                else:
+                    self._log(f"      [{mode_name.upper()} POINT] Point: {np.round(p, 4)} | Feasible: False")
+
+                # Register point in global base points registry if unique
                 if not any(np.allclose(p, gp_pt, atol=EPS) for gp_pt in self.global_base_points):
-                    # Add to global registry
                     self.global_base_points.append(p)
                     newly_added_count += 1
-
-                    # Mark as already evaluated in the lattice point hash structure
                     point_hash = self._get_point_hash(p)
                     self.evaluated_lattice_points.add(point_hash)
 
-                    # Evaluate the rounded point itself
-                    is_feas = self.is_feasible(p)
-                    if is_feas:
-                        obj = self.objective_value(point=p)
-                        self._log(f"      [{mode_name.upper()} POINT] Point: {np.round(p, 4)} | Feasible: True | Objective: {obj:.6f}")
-                        all_feasible_points.append((None, p, obj))
-                        self.update_best(p, obj)
-
-                        # If better than incumbent, submit immediately to Gurobi
-                        if self.bnb and self.bnb._is_better(obj):
-                            target_model = cb_model or self.model
-                            self._log(f"      [INCUMBENT IMPROVEMENT] Rounded point objective ({obj:.6f}) improves current incumbent ({self.bnb.best_incumbent:.6f}). Submitting immediately...")
-                            self.bnb.submit_solution(target_model, p)
-
-                        # Run Tabu Local Search refinement around rounded base point
-                        if self.use_tabu_ls:
-                            tls_pt, tls_obj = self.tabu_local_search(p, cb_model=cb_model)
-                            all_feasible_points.append((None, tls_pt, tls_obj))
-                    else:
-                        self._log(f"      [{mode_name.upper()} POINT] Point: {np.round(p, 4)} | Feasible: False")
+            # After evaluating all 3 rounded points for this LP solution, submit ONLY the best point to Gurobi
+            if lp_feasible_candidates:
+                best_p, best_obj = min(lp_feasible_candidates, key=lambda item: item[1] if self.is_minimize else -item[1])
+                if self.bnb and self.bnb._is_better(best_obj):
+                    target_model = cb_model or self.model
+                    self._log(f"      [INCUMBENT IMPROVEMENT] Best rounded point objective ({best_obj:.6f}) improves current incumbent. Submitting best point {np.round(best_p, 4)}...")
+                    self.bnb.submit_solution(target_model, best_p)
 
         self._log(f"\n   [UNIQUE GLOBAL POINT REGISTRY] Accumulated elements: {len(self.global_base_points)} (+{newly_added_count} new)")
         for idx, bp in enumerate(self.global_base_points):
             self._log(f"      Registry Point #{idx}: {np.round(bp, 4)}")
         self._log("   ==========================================================\n")
 
-        n_old = len(self.global_base_points) - newly_added_count
+        n_old = self.last_evaluated_registry_size
 
         combination_counter = 1
         for idx_A, idx_B in itertools.combinations(range(len(self.global_base_points)), 2):
@@ -141,15 +149,10 @@ class BLSController:
                 self._log("   [TIME LIMIT REACHED] Aborting further line evaluations.")
                 break
 
-            # Skip combinations where both points were present in previous BLS runs
+            # Skip combinations where both points were present in previous callback rounds
             if idx_A < n_old and idx_B < n_old:
                 continue
 
-            comb_key = tuple(sorted((idx_A, idx_B)))
-            if comb_key in self.evaluated_combinations:
-                combination_counter += 1
-                continue
-                
             RA = self.global_base_points[idx_A]
             RB = self.global_base_points[idx_B]
             
@@ -168,8 +171,25 @@ class BLSController:
             line_feasible = self.search_line()
             all_feasible_points.extend(line_feasible)
             
-            self.evaluated_combinations.add(comb_key)
             combination_counter += 1
+
+        # Update last_evaluated_registry_size boundary before appending batch centroid
+        self.last_evaluated_registry_size = len(self.global_base_points)
+
+        # Compute overall average of all generated points across ALL line combinations in this batch
+        generated_points = [pt for _, pt, _ in all_feasible_points]
+        if generated_points:
+            batch_avg = np.mean(generated_points, axis=0)
+            rounded_batch_avg = round_integer_part(batch_avg, self.integer_indices, 'round', self.lb, self.ub)
+            batch_hash = self._get_point_hash(rounded_batch_avg)
+            
+            self.evaluated_lattice_points.add(batch_hash)
+            self._log(f"\n   [BATCH CENTROID STORED] Overall rounded centroid of all generated points added to hash set: {np.round(rounded_batch_avg, 4)}")
+
+            # Register in global_base_points registry so it is available for future callback rounds
+            if self.is_feasible(rounded_batch_avg) and not any(np.allclose(rounded_batch_avg, bp, atol=EPS) for bp in self.global_base_points):
+                self.global_base_points.append(rounded_batch_avg)
+                self._log(f"   [REGISTRY UPDATED] Batch rounded centroid added to global base points registry: {np.round(rounded_batch_avg, 4)}")
 
         return all_feasible_points
 
@@ -192,6 +212,7 @@ class BLSController:
             self._log(f"      [LINE RESULT] No lattice points in feasible interval [{t_low:.6f}, {t_high:.6f}]")
             return []
         feasible_points = []
+        scanned_points = []
 
         self._log(f"      [LINE SCAN] Feasible t-interval [{t_low:.4f}, {t_high:.4f}]. Scanning lattice points:")
         for t in t_values:
@@ -202,18 +223,19 @@ class BLSController:
             point = self.line.point(t)
             point_hash = self._get_point_hash(point)
             
+            # Skip point if its hash is already in evaluated_lattice_points (e.g. base point or stored line average)
             if point_hash in self.evaluated_lattice_points:
                 continue
-            
+
             is_feas = self.is_feasible(point, t)
             objective = self.objective_value(t)
             
             self._log(f"         Lattice t={t:+.4f} -> Point: {np.round(point, 4)} | Feasible: {is_feas} | Objective: {objective:.6f}")
             
-            self.evaluated_lattice_points.add(point_hash)
             if not is_feas:
                 continue
                 
+            scanned_points.append(point)
             feasible_points.append((t, point, objective))
             self.update_best(point, objective)
 

@@ -196,5 +196,6 @@ class GuroBI_BLS:
             "tls_calls": self.bls.tls_calls,
             "tls_improvements": self.bls.tls_improvements,
             "best_bls_objective": self.bls.best_objective,
-            "best_bls_point": self.bls.best_point.tolist() if self.bls.best_point is not None else None,
+            "unique_hashes_stored": len(self.bls.evaluated_lattice_points),
+            "global_base_points_count": len(self.bls.global_base_points)
         }
