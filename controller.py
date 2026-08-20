@@ -108,7 +108,7 @@ class BLSController:
                 is_feas = self.is_feasible(p)
                 if is_feas:
                     obj = self.objective_value(point=p)
-                    self._log(f"      [{mode_name.upper()} POINT] Point: {np.round(p, 4)} | Feasible: True | Objective: {obj:.6f}")
+                    self._log(f"      [{mode_name.upper()} POINT] Point: {np.round(p, 4)} | Feasible: True | Objective: {obj:.6f} | LP Sol #{i+1}")
                     all_feasible_points.append((None, p, obj))
                     lp_feasible_candidates.append((p, obj))
                     self.update_best(p, obj)
@@ -119,11 +119,15 @@ class BLSController:
                         all_feasible_points.append((None, tls_pt, tls_obj))
                         lp_feasible_candidates.append((tls_pt, tls_obj))
                 else:
-                    self._log(f"      [{mode_name.upper()} POINT] Point: {np.round(p, 4)} | Feasible: False")
+                    self._log(f"      [{mode_name.upper()} POINT] Point: {np.round(p, 4)} | Feasible: False | LP Sol #{i+1}")
 
                 # Register point in global base points registry if unique
-                if not any(np.allclose(p, gp_pt, atol=EPS) for gp_pt in self.global_base_points):
-                    self.global_base_points.append(p)
+                if not any(np.allclose(p, entry['point'], atol=EPS) for entry in self.global_base_points):
+                    self.global_base_points.append({
+                        'point': p,
+                        'lp_id': i + 1,
+                        'mode': mode_name
+                    })
                     newly_added_count += 1
                     point_hash = self._get_point_hash(p)
                     self.evaluated_lattice_points.add(point_hash)
@@ -137,8 +141,8 @@ class BLSController:
                     self.bnb.submit_solution(target_model, best_p)
 
         self._log(f"\n   [UNIQUE GLOBAL POINT REGISTRY] Accumulated elements: {len(self.global_base_points)} (+{newly_added_count} new)")
-        for idx, bp in enumerate(self.global_base_points):
-            self._log(f"      Registry Point #{idx}: {np.round(bp, 4)}")
+        for idx, entry in enumerate(self.global_base_points):
+            self._log(f"      Registry Point #{idx} (LP Sol #{entry['lp_id']}, mode '{entry['mode']}'): {np.round(entry['point'], 4)}")
         self._log("   ==========================================================\n")
 
         n_old = self.last_evaluated_registry_size
@@ -153,16 +157,21 @@ class BLSController:
             if idx_A < n_old and idx_B < n_old:
                 continue
 
-            RA = self.global_base_points[idx_A]
-            RB = self.global_base_points[idx_B]
-            
+            entry_A = self.global_base_points[idx_A]
+            entry_B = self.global_base_points[idx_B]
+
+            RA = entry_A['point']
+            RB = entry_B['point']
+            lp_id_A = entry_A.get('lp_id', 'N/A')
+            lp_id_B = entry_B.get('lp_id', 'N/A')
+
             if np.allclose(RA, RB, atol=EPS):
                 continue
             self._log(f"   --- evaluating line combination #{combination_counter} ---")
-            self._log(f"      RA (Registry #{idx_A}): {np.round(RA, 4)}")
-            self._log(f"      RB (Registry #{idx_B}): {np.round(RB, 4)}")
-            
-            self.line.set_base_points(RA, RB)
+            self._log(f"      RA (Registry #{idx_A}, LP Sol #{lp_id_A}): {np.round(RA, 4)}")
+            self._log(f"      RB (Registry #{idx_B}, LP Sol #{lp_id_B}): {np.round(RB, 4)}")
+
+            self.line.set_base_points(RA, RB, lp_id_A=lp_id_A, lp_id_B=lp_id_B)
             self.base_activity = np.asarray(self.A @ RA)
             self.base_slope = np.asarray(self.A @ self.line.direction)
             self.obj_ra = float(self.c @ RA + self.obj_const)
@@ -170,7 +179,7 @@ class BLSController:
 
             line_feasible = self.search_line()
             all_feasible_points.extend(line_feasible)
-            
+
             combination_counter += 1
 
         # Update last_evaluated_registry_size boundary before appending batch centroid
@@ -182,13 +191,17 @@ class BLSController:
             batch_avg = np.mean(generated_points, axis=0)
             rounded_batch_avg = round_integer_part(batch_avg, self.integer_indices, 'round', self.lb, self.ub)
             batch_hash = self._get_point_hash(rounded_batch_avg)
-            
+
             self.evaluated_lattice_points.add(batch_hash)
             self._log(f"\n   [BATCH CENTROID STORED] Overall rounded centroid of all generated points added to hash set: {np.round(rounded_batch_avg, 4)}")
 
             # Register in global_base_points registry so it is available for future callback rounds
-            if self.is_feasible(rounded_batch_avg) and not any(np.allclose(rounded_batch_avg, bp, atol=EPS) for bp in self.global_base_points):
-                self.global_base_points.append(rounded_batch_avg)
+            if self.is_feasible(rounded_batch_avg) and not any(np.allclose(rounded_batch_avg, entry['point'], atol=EPS) for entry in self.global_base_points):
+                self.global_base_points.append({
+                    'point': rounded_batch_avg,
+                    'lp_id': 'Batch Centroid',
+                    'mode': 'centroid'
+                })
                 self._log(f"   [REGISTRY UPDATED] Batch rounded centroid added to global base points registry: {np.round(rounded_batch_avg, 4)}")
 
         return all_feasible_points
@@ -198,23 +211,23 @@ class BLSController:
             return []
 
         if self.should_discard_parallel_infeasible():
-            self._log("      [LINE SEARCH] Discarded line due to parallel infeasibility check.")
+            self._log(f"      [LINE SEARCH] Discarded line due to parallel infeasibility check (Line between LP Sol #{self.line.lp_id_A} and LP Sol #{self.line.lp_id_B}).")
             return []
 
         interval = self.feasible_t_interval()
         if interval is None:
-            self._log("      [LINE SEARCH] Continuous feasible t-interval is empty.")
+            self._log(f"      [LINE SEARCH] Continuous feasible t-interval is empty (Line between LP Sol #{self.line.lp_id_A} and LP Sol #{self.line.lp_id_B}).")
             return []
 
         t_low, t_high = interval
         t_values = self.lattice_t_values(t_low, t_high)
         if not t_values:
-            self._log(f"      [LINE RESULT] No lattice points in feasible interval [{t_low:.6f}, {t_high:.6f}]")
+            self._log(f"      [LINE RESULT] No lattice points in feasible interval [{t_low:.6f}, {t_high:.6f}] (Line between LP Sol #{self.line.lp_id_A} and LP Sol #{self.line.lp_id_B})")
             return []
         feasible_points = []
         scanned_points = []
 
-        self._log(f"      [LINE SCAN] Feasible t-interval [{t_low:.4f}, {t_high:.4f}]. Scanning lattice points:")
+        self._log(f"      [LINE SCAN] Feasible t-interval [{t_low:.4f}, {t_high:.4f}] (Base points from LP Sol #{self.line.lp_id_A} & LP Sol #{self.line.lp_id_B}). Scanning lattice points:")
         for t in t_values:
             if self.bnb and self.bnb.is_time_limit_exceeded():
                 self._log("      [TIME LIMIT REACHED] Terminating current line search scan.")

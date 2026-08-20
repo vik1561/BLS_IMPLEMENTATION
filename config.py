@@ -9,13 +9,13 @@ INSTANCE_DIR = PROJECT_DIR / "miplib_pure_integer_instances"
 RESULT_DIR = PROJECT_DIR / "results"
 RESULT_DIR.mkdir(exist_ok=True)
 
-INSTANCE_NAME = "gen-ip054.mps"
+INSTANCE_NAME = "neos-3594536-henty.mps"
 INSTANCE_PATH = INSTANCE_DIR / INSTANCE_NAME
 
 # =====================================================================
 # SOLVER & ALGORITHM PARAMETERS
 # =====================================================================
-TIME_LIMIT = 2500
+TIME_LIMIT = 10
 THREADS = 1
 OUTPUT_FLAG = 1
 SEED = 1
@@ -24,6 +24,8 @@ MIP_GAP = 0.0
 EPS = 1e-6
 
 # BLS Heuristic specific parameters
+USE_MIPLIB_SOLUTIONS = True
+
 USE_BLS = True
 VERBOSE = True
 MIN_LP_POINTS = 3

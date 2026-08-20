@@ -1,0 +1,44 @@
+{
+  "gen-ip002": {
+    "raw_name": "gen-ip002.mps",
+    "obj_val": -4769.740588799999,
+    "status": "OPTIMAL",
+    "source": "Gurobi Solver Run"
+  },
+  "example": {
+    "raw_name": "example.mps",
+    "obj_val": 23.799999999999997,
+    "status": "OPTIMAL",
+    "source": "Gurobi Solver Run"
+  },
+  "air04": {
+    "raw_name": "air04.mps",
+    "obj_val": 56137.0,
+    "status": "OPTIMAL",
+    "source": "MIPLIB2017 solu"
+  },
+  "neos-3594536-henty": {
+    "raw_name": "neos-3594536-henty.mps",
+    "obj_val": 401793.0,
+    "status": "BEST_KNOWN_=best=",
+    "source": "MIPLIB2017 solu"
+  },
+  "branching_test_10var": {
+    "raw_name": "branching_test_10var.mps",
+    "obj_val": 76.0,
+    "status": "OPTIMAL",
+    "source": "Gurobi Solver Run"
+  },
+  "3var": {
+    "raw_name": "3var.mps",
+    "obj_val": -98.0,
+    "status": "OPTIMAL",
+    "source": "Gurobi Solver Run"
+  },
+  "gen-ip054": {
+    "raw_name": "gen-ip054.mps",
+    "obj_val": 6840.96564179,
+    "status": "OPTIMAL",
+    "source": "MIPLIB2017 solu"
+  }
+}
