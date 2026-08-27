@@ -167,9 +167,12 @@ class BLSController:
 
             if np.allclose(RA, RB, atol=EPS):
                 continue
-            self._log(f"   --- evaluating line combination #{combination_counter} ---")
-            self._log(f"      RA (Registry #{idx_A}, LP Sol #{lp_id_A}): {np.round(RA, 4)}")
-            self._log(f"      RB (Registry #{idx_B}, LP Sol #{lp_id_B}): {np.round(RB, 4)}")
+            best_obj_str = f"{self.best_objective:.4f}" if self.best_objective is not None else "N/A"
+            self._log(f"   --- evaluating line combination#{combination_counter} ---,current best obj {best_obj_str}")
+            obj_RA = self.objective_value(point=RA)
+            obj_RB = self.objective_value(point=RB)
+            self._log(f"      RA (Registry #{idx_A}, LP Sol #{lp_id_A}): {np.round(RA, 4)} , obj:{obj_RA:.4f}")
+            self._log(f"      RB (Registry #{idx_B}, LP Sol #{lp_id_B}): {np.round(RB, 4)} , obj:{obj_RB:.4f}")
 
             self.line.set_base_points(RA, RB, lp_id_A=lp_id_A, lp_id_B=lp_id_B)
             self.base_activity = np.asarray(self.A @ RA)
@@ -243,7 +246,7 @@ class BLSController:
             is_feas = self.is_feasible(point, t)
             objective = self.objective_value(t)
             
-            self._log(f"         Lattice t={t:+.4f} -> Point: {np.round(point, 4)} | Feasible: {is_feas} | Objective: {objective:.6f}")
+            self._log(f"         Lattice t={t:+.4f} -> Point: {np.round(point, 4)} | Feasible: {is_feas} | Objective: {objective:.6f} | LP Sols: (#{self.line.lp_id_A}, #{self.line.lp_id_B})")
             
             if not is_feas:
                 continue
