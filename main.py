@@ -25,7 +25,7 @@ from bls.solver import GuroBI_BLS
 def main():
     global_start_time = time.time()
 
-    instance_path = INSTANCE_PATH
+    instance_path = Path(sys.argv[1]) if len(sys.argv) > 1 else INSTANCE_PATH
     if not instance_path.exists():
         if not instance_path.parent.exists():
             raise FileNotFoundError(
@@ -47,6 +47,8 @@ def main():
     mip.Params.Heuristics = 0.0
     mip.Params.Presolve = 0
     mip.Params.Cuts = 0
+    mip.Params.RINS = 0
+    mip.Params.Symmetry = 0
 
     solver_backend = GuroBI_BLS(
         mip,
