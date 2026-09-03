@@ -170,7 +170,8 @@ class BLSController:
             if np.allclose(RA, RB, atol=EPS):
                 continue
             best_obj_str = f"{self.best_objective:.4f}" if self.best_objective is not None else "N/A"
-            self._log(f"   --- evaluating line combination#{combination_counter} ---,current best obj {best_obj_str}")
+            gurobi_best_str = f"{self.bnb.best_incumbent:.4f}" if self.bnb and self.bnb.best_incumbent not in [float('inf'), float('-inf')] else "N/A"
+            self._log(f"   --- evaluating line combination#{combination_counter} ---, current BLS batch best obj: {best_obj_str}, current best to gurobi: {gurobi_best_str}")
             obj_RA = self.objective_value(point=RA)
             obj_RB = self.objective_value(point=RB)
             self._log(f"      RA (Registry #{idx_A}, LP Sol #{lp_id_A}): {np.round(RA, 4)} , obj:{obj_RA:.4f}")
