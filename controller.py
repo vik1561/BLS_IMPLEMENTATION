@@ -10,7 +10,8 @@ from .config import (
     VERBOSE,
     USE_TABU_LOCAL_SEARCH,
     TABU_MAX_STEPS,
-    TABU_TENURE
+    TABU_TENURE,
+    CALCULATE_CENTROIDS
 )
 from .utils import round_integer_part
 from .line_search import LineSearch
@@ -189,23 +190,24 @@ class BLSController:
         self.last_evaluated_registry_size = len(self.global_base_points)
 
         # Compute overall average of all generated points across ALL line combinations in this batch
-        generated_points = [pt for _, pt, _ in all_feasible_points]
-        if generated_points:
-            batch_avg = np.mean(generated_points, axis=0)
-            rounded_batch_avg = round_integer_part(batch_avg, self.integer_indices, 'round', self.lb, self.ub)
-            batch_hash = self._get_point_hash(rounded_batch_avg)
-
-            self.evaluated_lattice_points.add(batch_hash)
-            self._log(f"\n   [BATCH CENTROID STORED] Overall rounded centroid of all generated points added to hash set: {np.round(rounded_batch_avg, 4)}")
-
-            # Register in global_base_points registry so it is available for future callback rounds
-            if self.is_feasible(rounded_batch_avg) and not any(np.allclose(rounded_batch_avg, entry['point'], atol=EPS) for entry in self.global_base_points):
-                self.global_base_points.append({
-                    'point': rounded_batch_avg,
-                    'lp_id': 'Batch Centroid',
-                    'mode': 'centroid'
-                })
-                self._log(f"   [REGISTRY UPDATED] Batch rounded centroid added to global base points registry: {np.round(rounded_batch_avg, 4)}")
+        if CALCULATE_CENTROIDS:
+            generated_points = [pt for _, pt, _ in all_feasible_points]
+            if generated_points:
+                batch_avg = np.mean(generated_points, axis=0)
+                rounded_batch_avg = round_integer_part(batch_avg, self.integer_indices, 'round', self.lb, self.ub)
+                batch_hash = self._get_point_hash(rounded_batch_avg)
+    
+                self.evaluated_lattice_points.add(batch_hash)
+                self._log(f"\n   [BATCH CENTROID STORED] Overall rounded centroid of all generated points added to hash set: {np.round(rounded_batch_avg, 4)}")
+    
+                # Register in global_base_points registry so it is available for future callback rounds
+                if self.is_feasible(rounded_batch_avg) and not any(np.allclose(rounded_batch_avg, entry['point'], atol=EPS) for entry in self.global_base_points):
+                    self.global_base_points.append({
+                        'point': rounded_batch_avg,
+                        'lp_id': 'Batch Centroid',
+                        'mode': 'centroid'
+                    })
+                    self._log(f"   [REGISTRY UPDATED] Batch rounded centroid added to global base points registry: {np.round(rounded_batch_avg, 4)}")
 
         return all_feasible_points
 

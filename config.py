@@ -5,17 +5,18 @@ from pathlib import Path
 # =====================================================================
 # Path to project root (one level up from this bls package directory)
 PROJECT_DIR = Path(__file__).resolve().parent.parent
-INSTANCE_DIR = PROJECT_DIR / "miplib_pure_integer_instances"
+INSTANCE_DIR = PROJECT_DIR / "miplib_instances/instances"
 RESULT_DIR = PROJECT_DIR / "results"
 RESULT_DIR.mkdir(exist_ok=True)
 
-INSTANCE_NAME = "neos-3594536-henty.mps"
+INSTANCE_NAME = "example.mps"
 INSTANCE_PATH = INSTANCE_DIR / INSTANCE_NAME
 
 # =====================================================================
 # SOLVER & ALGORITHM PARAMETERS
 # =====================================================================
 TIME_LIMIT = 10
+GUROBI_BASELINE_TIME_LIMIT = 10
 THREADS = 1
 OUTPUT_FLAG = 1
 SEED = 1
@@ -24,11 +25,12 @@ MIP_GAP = 0.0
 EPS = 1e-6
 
 # BLS Heuristic specific parameters
-USE_MIPLIB_SOLUTIONS = True
+USE_MIPLIB_SOLUTIONS = False
 
 USE_BLS = True
+CALCULATE_CENTROIDS = False
 VERBOSE = True
-MIN_LP_POINTS = 3
+MIN_LP_POINTS = 1
 BLS_MAX_CANDIDATES = 200
 BLS_MAX_EXTENSION = 50
 
