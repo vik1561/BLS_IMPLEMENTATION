@@ -48,6 +48,7 @@ class BLSController:
         self.tabu_tenure = TABU_TENURE
         self.tls_calls = 0
         self.tls_improvements = 0
+        self.line_solutions_count = 0
 
         self._cache_model_data()
 
@@ -182,6 +183,7 @@ class BLSController:
             self.obj_d = float(self.c @ self.line.direction)
 
             line_feasible = self.search_line()
+            self.line_solutions_count += len(line_feasible)
             all_feasible_points.extend(line_feasible)
 
             combination_counter += 1

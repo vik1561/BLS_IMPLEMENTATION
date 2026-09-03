@@ -191,6 +191,7 @@ class GuroBI_BLS:
             "nodes_processed": self.original_model.NodeCount,
             "bls_calls": self.bls_calls,
             "bls_solutions_found": self.bls_solutions_found,
+            "line_solutions_found": self.bls.line_solutions_count,
             "bls_improvements": self.bls_improvements,
             "use_tabu_local_search": self.bls.use_tabu_ls,
             "tls_calls": self.bls.tls_calls,
